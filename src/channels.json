@@ -18,27 +18,9 @@
     "referer": "https://www.startv.com.tr/"
   },
   {
-    "id": "CNNTurk.tr",
-    "name": "CNN Turk",
-    "page": "https://www.cnnturk.com/canli-yayin",
-    "referer": "https://www.cnnturk.com/"
-  },
-  {
-    "id": "Fox.tr",
-    "name": "FOX",
-    "page": "https://www.fox.com.tr/canli-yayin",
-    "referer": "https://www.fox.com.tr/"
-  },
-  {
     "id": "TV8.tr",
     "name": "TV8",
     "page": "https://www.tv8.com.tr/canli-yayin",
-    "referer": "https://www.tv8.com.tr/"
-  },
-  {
-    "id": "TV85.tr",
-    "name": "TV8.5",
-    "page": "https://www.tv8.com.tr/tv8bucuk/canli-yayin",
     "referer": "https://www.tv8.com.tr/"
   },
   {
@@ -48,34 +30,16 @@
     "referer": "https://www.atv.com.tr/"
   },
   {
-    "id": "NTV.tr",
-    "name": "NTV",
-    "page": "https://www.ntv.com.tr/canli-yayin/ntv",
-    "referer": "https://www.ntv.com.tr/"
-  },
-  {
     "id": "HaberturkTV.tr",
     "name": "Haberturk TV",
     "page": "https://www.haberturk.com/canliyayin",
     "referer": "https://www.haberturk.com/"
   },
   {
-    "id": "HaberGlobal.tr",
-    "name": "Haber Global",
-    "page": "https://www.haberglobal.com.tr/canli-yayin",
-    "referer": "https://www.haberglobal.com.tr/"
-  },
-  {
     "id": "BloombergHT.tr",
     "name": "Bloomberg HT",
     "page": "https://www.bloomberght.com/tv",
     "referer": "https://www.bloomberght.com/"
-  },
-  {
-    "id": "Tele1.tr",
-    "name": "Tele 1",
-    "page": "https://www.tele1.com.tr/canli-yayin",
-    "referer": "https://www.tele1.com.tr/"
   },
   {
     "id": "HalkTV.tr",
@@ -90,21 +54,9 @@
     "referer": "https://www.beyaztv.com.tr/"
   },
   {
-    "id": "EuroStar.tr",
-    "name": "EuroStar",
-    "page": "https://www.startv.com.tr/canli-yayin/eurostar",
-    "referer": "https://www.startv.com.tr/"
-  },
-  {
     "id": "NOWTV.tr",
     "name": "NOW TV",
     "page": "https://www.nowtv.com.tr/canli-yayin",
     "referer": "https://www.nowtv.com.tr/"
-  },
-  {
-    "id": "SozcuTV.tr",
-    "name": "Sozcu TV",
-    "page": "https://www.sozcu.com.tr/canli-yayin",
-    "referer": "https://www.sozcu.com.tr/"
   }
 ]
