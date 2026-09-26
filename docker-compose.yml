@@ -14,3 +14,11 @@ services:
       REDIS_URL: "redis://redis:6379"
     depends_on:
       - redis
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1536M
+        reservations:
+          cpus: "0.1"
+          memory: 512M

@@ -1,7 +1,7 @@
 const { chromium } = require("playwright");
 
-const SCRAPE_TIMEOUT = 20000;
-const CONCURRENCY = 5;
+const SCRAPE_TIMEOUT = 15000;
+const CONCURRENCY = 2;
 const M3U8_PATTERN = /\.m3u8/;
 
 let browserInstance = null;
@@ -19,7 +19,13 @@ async function getBrowser() {
 }
 
 async function scrapeChannel(channel) {
-  const browser = await getBrowser();
+  let browser;
+  try {
+    browser = await getBrowser();
+  } catch {
+    browserInstance = null;
+    browser = await getBrowser();
+  }
   const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
@@ -75,18 +81,29 @@ async function scrapeMany(channels) {
   const results = [];
   const queue = [...channels];
 
+  async function scrapeWithTimeout(channel) {
+    return Promise.race([
+      scrapeChannel(channel),
+      new Promise((resolve) => setTimeout(() => resolve(null), SCRAPE_TIMEOUT + 5000)),
+    ]);
+  }
+
   async function worker() {
     while (queue.length > 0) {
       const channel = queue.shift();
       const t = Date.now();
-      const url = await scrapeChannel(channel);
-      const elapsed = ((Date.now() - t) / 1000).toFixed(1);
-
-      if (url) {
-        console.log(`  ✓ ${channel.name} (${elapsed}s)`);
-        results.push({ channel, url });
-      } else {
-        console.warn(`  ✗ ${channel.name} (${elapsed}s)`);
+      try {
+        const url = await scrapeWithTimeout(channel);
+        const elapsed = ((Date.now() - t) / 1000).toFixed(1);
+        if (url) {
+          console.log(`  ✓ ${channel.name} (${elapsed}s)`);
+          results.push({ channel, url });
+        } else {
+          console.warn(`  ✗ ${channel.name} (${elapsed}s)`);
+        }
+      } catch (err) {
+        const elapsed = ((Date.now() - t) / 1000).toFixed(1);
+        console.warn(`  ✗ ${channel.name} (${elapsed}s) error: ${err.message}`);
       }
     }
   }
