@@ -1,0 +1,14 @@
+{
+  "name": "ip-tv-scrapper",
+  "version": "1.0.0",
+  "description": "Scrapes tokenized stream URLs from Turkish TV channel websites",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ioredis": "^6.0.0",
+    "playwright": "^1.52.0"
+  }
+}

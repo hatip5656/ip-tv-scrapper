@@ -1,0 +1,123 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'k8s/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/ip-tv-scrapper
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Server
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SSH dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Setup SSH known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to Kubernetes
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          IMAGE_TAG: ${{ needs.build.outputs.image-tag }}
+        run: |
+          sshpass -p "$SERVER_PASSWORD" ssh "$SERVER_USER@$SERVER_HOST" "mkdir -p ~/k8s/ip-tv-scrapper"
+
+          sshpass -p "$SERVER_PASSWORD" scp -r k8s/* "$SERVER_USER@$SERVER_HOST:~/k8s/ip-tv-scrapper/"
+
+          sshpass -p "$SERVER_PASSWORD" ssh "$SERVER_USER@$SERVER_HOST" bash -s <<DEPLOY_SCRIPT
+            cd ~/k8s/ip-tv-scrapper
+
+            kubectl apply -f namespace.yaml
+
+            kubectl create secret docker-registry ghcr-secret \
+              --namespace=ip-tv-addon \
+              --docker-server=ghcr.io \
+              --docker-username=hatip5656 \
+              --docker-password=${GHCR_PAT} \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+            sed -i "s|ghcr.io/hatip5656/ip-tv-scrapper:latest|ghcr.io/hatip5656/ip-tv-scrapper:${IMAGE_TAG:-latest}|g" deployment.yaml
+
+            kubectl apply -f deployment.yaml
+
+            kubectl rollout restart deployment/ip-tv-scrapper -n ip-tv-addon
+            kubectl rollout status deployment/ip-tv-scrapper -n ip-tv-addon --timeout=180s
+
+            echo "Deployment status:"
+            kubectl get deployments -n ip-tv-addon
+            kubectl get pods -n ip-tv-addon
+            kubectl get svc -n ip-tv-addon
+          DEPLOY_SCRIPT
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ghcr.io/${{ github.repository_owner }}/ip-tv-scrapper:${{ needs.build.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace:** ip-tv-addon" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ip-tv-scrapper (ClusterIP 7778)" >> $GITHUB_STEP_SUMMARY

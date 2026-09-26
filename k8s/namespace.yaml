@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ip-tv-addon
+  labels:
+    app: ip-tv-addon
+    project: ip-tv-addon

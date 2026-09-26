@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ip-tv-scrapper
+  namespace: ip-tv-addon
+  labels:
+    app: ip-tv-scrapper
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ip-tv-scrapper
+  template:
+    metadata:
+      labels:
+        app: ip-tv-scrapper
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: ip-tv-scrapper
+          image: ghcr.io/hatip5656/ip-tv-scrapper:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 7778
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "7778"
+            - name: REDIS_URL
+              value: "redis://redis.flash-card-io.svc.cluster.local:6379"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      imagePullSecrets:
+        - name: ghcr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ip-tv-scrapper
+  namespace: ip-tv-addon
+spec:
+  selector:
+    app: ip-tv-scrapper
+  ports:
+    - port: 7778
+      targetPort: 7778
+      protocol: TCP
