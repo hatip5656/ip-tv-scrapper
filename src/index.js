@@ -151,6 +151,29 @@ app.get("/api/streams/:id", (req, res) => {
   res.json({ id, name, url, headers });
 });
 
+// Push endpoint — local scraper sends fresh URLs here
+app.use(express.json());
+app.post("/api/streams", (req, res) => {
+  const entries = req.body;
+  if (!Array.isArray(entries)) {
+    return res.status(400).json({ error: "expected array" });
+  }
+  let updated = 0;
+  for (const entry of entries) {
+    if (!entry.id || !entry.url) continue;
+    const channel = channels.find((ch) => ch.id === entry.id) || {
+      id: entry.id,
+      name: entry.name || entry.id,
+      referer: entry.headers?.Referer || "",
+    };
+    streamCache.set(entry.id, buildEntry(channel, entry.url));
+    updated++;
+  }
+  saveToRedis();
+  console.log(`Push received: ${updated} streams updated`);
+  res.json({ updated });
+});
+
 app.get("/health", (req, res) => {
   const entries = [...streamCache.values()];
   const expired = entries.filter((e) => e.expiresAt < Date.now()).length;
@@ -171,12 +194,14 @@ async function start() {
     console.log(`ip-tv-scrapper running at http://localhost:${PORT}`);
   });
 
-  // Initial full scrape
-  fullRefresh();
-
-  // Check for expiring tokens every 15 min
-  setInterval(partialRefresh, CHECK_INTERVAL);
-  console.log("Scheduled: partial refresh every 15min");
+  // Only scrape if not in passive mode (VPS can't reach Turkish sites)
+  if (process.env.PASSIVE !== "true") {
+    fullRefresh();
+    setInterval(partialRefresh, CHECK_INTERVAL);
+    console.log("Scheduled: partial refresh every 15min");
+  } else {
+    console.log("Passive mode: waiting for push from local scraper");
+  }
 }
 
 start();

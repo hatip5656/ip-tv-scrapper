@@ -1,0 +1,14 @@
+services:
+  scrapper:
+    build: .
+    ports:
+      - "7778:7778"
+    environment:
+      PORT: "7778"
+      REDIS_URL: "redis://${VPS_HOST:-51.68.139.128}:${VPS_REDIS_PORT:-30637}"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1536M

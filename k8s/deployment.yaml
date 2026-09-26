@@ -31,6 +31,8 @@ spec:
               value: "7778"
             - name: REDIS_URL
               value: "redis://redis.flash-card-io.svc.cluster.local:6379"
+            - name: PASSIVE
+              value: "true"
           startupProbe:
             httpGet:
               path: /health
@@ -68,9 +70,11 @@ metadata:
   name: ip-tv-scrapper
   namespace: ip-tv-addon
 spec:
+  type: NodePort
   selector:
     app: ip-tv-scrapper
   ports:
     - port: 7778
       targetPort: 7778
+      nodePort: 30178
       protocol: TCP
