@@ -1,14 +1,15 @@
 const express = require("express");
 const Redis = require("ioredis");
-const { scrapeAll } = require("./scraper");
+const { scrapeChannel, scrapeMany } = require("./scraper");
 const channels = require("./channels.json");
 
 const PORT = process.env.PORT || 7778;
 const REDIS_URL =
   process.env.REDIS_URL ||
   "redis://redis.flash-card-io.svc.cluster.local:6379";
-const REFRESH_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
 const REDIS_KEY = "iptv-scrapper:streams";
+const CHECK_INTERVAL = 15 * 60 * 1000; // check every 15 min
+const EXPIRY_BUFFER = 30 * 60 * 1000; // refresh 30 min before expiry
 
 // Redis
 let redis = null;
@@ -23,40 +24,113 @@ try {
   console.warn("Redis not available");
 }
 
-// In-memory cache
-let streamsCache = [];
+// ── Stream cache: id → { id, name, url, headers, expiresAt } ──
 
-async function saveToRedis(streams) {
+const streamCache = new Map();
+
+function parseExpiry(url) {
+  try {
+    const u = new URL(url);
+    // Try common token expiry params: ex, e, exp, expires
+    for (const key of ["ex", "e", "exp", "expires"]) {
+      const val = u.searchParams.get(key);
+      if (val) {
+        const ts = parseInt(val);
+        if (ts > 1e12) return ts; // milliseconds
+        if (ts > 1e9) return ts * 1000; // seconds → ms
+      }
+    }
+  } catch {}
+  // Default: assume 4 hour lifetime if no expiry found
+  return Date.now() + 4 * 60 * 60 * 1000;
+}
+
+function buildEntry(channel, url) {
+  return {
+    id: channel.id,
+    name: channel.name,
+    url,
+    headers: {
+      Referer: channel.referer,
+      Origin: channel.referer.replace(/\/$/, ""),
+    },
+    expiresAt: parseExpiry(url),
+  };
+}
+
+async function saveToRedis() {
   if (!redis) return;
   try {
-    await redis.set(REDIS_KEY, JSON.stringify(streams));
+    const data = [...streamCache.values()];
+    await redis.set(REDIS_KEY, JSON.stringify(data));
   } catch {}
 }
 
 async function loadFromRedis() {
-  if (!redis) return null;
+  if (!redis) return;
   try {
     await redis.connect();
     const json = await redis.get(REDIS_KEY);
-    return json ? JSON.parse(json) : null;
-  } catch {
-    return null;
-  }
+    if (!json) return;
+    const data = JSON.parse(json);
+    for (const entry of data) {
+      // Only load entries that haven't expired
+      if (entry.expiresAt > Date.now()) {
+        streamCache.set(entry.id, entry);
+      }
+    }
+    console.log(`Warm start: ${streamCache.size} streams from Redis`);
+  } catch {}
 }
 
-async function refresh() {
+// ── Refresh logic ──
+
+let refreshing = false;
+
+async function fullRefresh() {
+  if (refreshing) return;
+  refreshing = true;
+
   try {
-    const streams = await scrapeAll(channels);
-    if (streams.length > 0) {
-      streamsCache = streams;
-      await saveToRedis(streams);
-      console.log(`Cached ${streams.length} streams`);
-    } else {
-      console.warn("Scraping returned 0 results, keeping previous cache");
+    const results = await scrapeMany(channels);
+    for (const { channel, url } of results) {
+      streamCache.set(channel.id, buildEntry(channel, url));
     }
+    await saveToRedis();
+    console.log(`Full refresh: ${streamCache.size} channels cached`);
   } catch (err) {
-    console.error("Refresh failed:", err.message);
+    console.error("Full refresh failed:", err.message);
   }
+
+  refreshing = false;
+}
+
+async function partialRefresh() {
+  if (refreshing) return;
+
+  const now = Date.now();
+  const expiring = channels.filter((ch) => {
+    const entry = streamCache.get(ch.id);
+    if (!entry) return true; // never scraped
+    return entry.expiresAt - now < EXPIRY_BUFFER; // expires within 30 min
+  });
+
+  if (expiring.length === 0) return;
+
+  refreshing = true;
+  console.log(`Partial refresh: ${expiring.length} channels expiring soon`);
+
+  try {
+    const results = await scrapeMany(expiring);
+    for (const { channel, url } of results) {
+      streamCache.set(channel.id, buildEntry(channel, url));
+    }
+    await saveToRedis();
+  } catch (err) {
+    console.error("Partial refresh failed:", err.message);
+  }
+
+  refreshing = false;
 }
 
 // ── Express API ──
@@ -64,35 +138,45 @@ async function refresh() {
 const app = express();
 
 app.get("/api/streams", (req, res) => {
-  res.json(streamsCache);
+  const results = [...streamCache.values()].map(
+    ({ id, name, url, headers }) => ({ id, name, url, headers })
+  );
+  res.json(results);
+});
+
+app.get("/api/streams/:id", (req, res) => {
+  const entry = streamCache.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: "not found" });
+  const { id, name, url, headers } = entry;
+  res.json({ id, name, url, headers });
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", channels: streamsCache.length });
+  const entries = [...streamCache.values()];
+  const expired = entries.filter((e) => e.expiresAt < Date.now()).length;
+  res.json({
+    status: "ok",
+    channels: entries.length,
+    expired,
+    active: entries.length - expired,
+  });
 });
 
 // ── Startup ──
 
 async function start() {
-  // 1. Warm start from Redis
-  const cached = await loadFromRedis();
-  if (cached && cached.length > 0) {
-    streamsCache = cached;
-    console.log(`Warm start: ${cached.length} streams from Redis`);
-  }
+  await loadFromRedis();
 
-  // 2. Start server immediately
   app.listen(PORT, () => {
     console.log(`ip-tv-scrapper running at http://localhost:${PORT}`);
-    console.log(`API: http://localhost:${PORT}/api/streams`);
   });
 
-  // 3. First scrape in background
-  refresh();
+  // Initial full scrape
+  fullRefresh();
 
-  // 4. Schedule periodic refresh
-  setInterval(refresh, REFRESH_INTERVAL);
-  console.log(`Scheduled refresh every ${REFRESH_INTERVAL / 3600000}h`);
+  // Check for expiring tokens every 15 min
+  setInterval(partialRefresh, CHECK_INTERVAL);
+  console.log("Scheduled: partial refresh every 15min");
 }
 
 start();
